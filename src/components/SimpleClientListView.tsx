@@ -29,9 +29,9 @@ export interface SimpleClient {
   name: string;
   entryTimestamp: number; // Date.now()
   durationMinutes: number; // 60 default
-  remainingSeconds: number; // 3600 default (counts down, negative when overtime)
+  targetEndTime: number; // Date.now() + durationMs (permet de garder le compte exact même si la page est fermée ou rechargée)
   isPaused: boolean;
-  notes?: string;
+  pausedRemainingSeconds?: number;
   alert5MinFired?: boolean;
   alertExpiredFired?: boolean;
 }
@@ -45,33 +45,24 @@ export interface CheckoutRecord {
   completedAt: number;
 }
 
-const STORAGE_KEY_CLIENTS = 'pixel_simple_clients_v2';
-const STORAGE_KEY_CHECKOUTS = 'pixel_simple_checkouts_v2';
+const STORAGE_KEY_CLIENTS = 'pixel_simple_clients_exact_v3';
+const STORAGE_KEY_CHECKOUTS = 'pixel_simple_checkouts_exact_v3';
 
 export function SimpleClientListView() {
   const [clients, setClients] = useState<SimpleClient[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_CLIENTS);
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return [
-      {
-        id: 'c-1',
-        name: 'Lucas & Julie',
-        entryTimestamp: Date.now() - (15 * 60 * 1000),
-        durationMinutes: 60,
-        remainingSeconds: 2700, // 45 min restants
-        isPaused: false,
-      },
-      {
-        id: 'c-2',
-        name: 'Famille Martin',
-        entryTimestamp: Date.now() - (53 * 60 * 1000),
-        durationMinutes: 60,
-        remainingSeconds: 420, // 7 min restantes (alerte)
-        isPaused: false,
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return parsed.map((c: any) => {
+          if (!c.targetEndTime) {
+            c.targetEndTime = (c.entryTimestamp || Date.now()) + ((c.durationMinutes || 60) * 60 * 1000);
+          }
+          return c;
+        });
       }
-    ];
+    } catch {}
+    return [];
   });
 
   const [checkouts, setCheckouts] = useState<CheckoutRecord[]>(() => {
@@ -83,12 +74,21 @@ export function SimpleClientListView() {
   });
 
   const [nameInput, setNameInput] = useState('');
-  const [durationMinutes, setDurationMinutes] = useState<number>(60); // 1h par défaut
+  const [durationMinutes, setDurationMinutes] = useState<number>(60);
   const [searchQuery, setSearchQuery] = useState('');
   const [soundMuted, setSoundMuted] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [, setTick] = useState(0); // Force re-render every second
 
-  // Persistence
+  // Calcul du temps restant en temps réel (exacte à la seconde même après F5 / refresh)
+  const getRemainingSeconds = (client: SimpleClient): number => {
+    if (client.isPaused) {
+      return client.pausedRemainingSeconds ?? 0;
+    }
+    return Math.round((client.targetEndTime - Date.now()) / 1000);
+  };
+
+  // Persistence automatique
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY_CLIENTS, JSON.stringify(clients));
@@ -101,30 +101,30 @@ export function SimpleClientListView() {
     } catch {}
   }, [checkouts]);
 
-  // Main 1-second countdown timer interval
+  // Horloge 1s pour actualiser l'affichage & déclencher alertes
   useEffect(() => {
     const timer = setInterval(() => {
+      setTick(t => t + 1);
+
+      // Gestion des alertes sonores
       setClients(prev => {
-        if (prev.length === 0) return prev;
-
-        return prev.map(client => {
+        let changed = false;
+        const nextList = prev.map(client => {
           if (client.isPaused) return client;
+          const rem = Math.round((client.targetEndTime - Date.now()) / 1000);
 
-          const nextRemaining = client.remainingSeconds - 1;
           let alert5 = client.alert5MinFired;
           let alertExp = client.alertExpiredFired;
 
-          // Sound notifications
           if (!soundMuted) {
-            // 5 minutes warning
-            if (nextRemaining === 300 && !alert5) {
+            if (rem === 300 && !alert5) {
               alert5 = true;
+              changed = true;
               audioSynth.playWarningAlert();
               audioSynth.speak(`Attention ${client.name}, il reste 5 minutes.`);
-            }
-            // 0s: Expired (1 hour finished)
-            else if (nextRemaining === 0 && !alertExp) {
+            } else if (rem === 0 && !alertExp) {
               alertExp = true;
+              changed = true;
               audioSynth.playTimesUpBuzzer();
               confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
               setTimeout(() => {
@@ -133,33 +133,38 @@ export function SimpleClientListView() {
             }
           }
 
-          return {
-            ...client,
-            remainingSeconds: nextRemaining,
-            alert5MinFired: alert5,
-            alertExpiredFired: alertExp,
-          };
+          if (alert5 !== client.alert5MinFired || alertExp !== client.alertExpiredFired) {
+            return { ...client, alert5MinFired: alert5, alertExpiredFired: alertExp };
+          }
+          return client;
         });
+
+        return changed ? nextList : prev;
       });
     }, 1000);
 
     return () => clearInterval(timer);
   }, [soundMuted]);
 
-  // Add new client with 1-hour countdown
+  // Ajouter un nouveau client
   const handleAddClient = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanName = nameInput.trim();
     if (!cleanName) return;
 
-    const totalSeconds = durationMinutes * 60;
+    const now = Date.now();
+    const totalMs = durationMinutes * 60 * 1000;
+
     const newClient: SimpleClient = {
-      id: `client-${Date.now()}`,
+      id: `client-${now}`,
       name: cleanName,
-      entryTimestamp: Date.now(),
+      entryTimestamp: now,
       durationMinutes: durationMinutes,
-      remainingSeconds: totalSeconds,
+      targetEndTime: now + totalMs,
       isPaused: false,
+      pausedRemainingSeconds: durationMinutes * 60,
+      alert5MinFired: false,
+      alertExpiredFired: false,
     };
 
     setClients(prev => [newClient, ...prev]);
@@ -167,19 +172,23 @@ export function SimpleClientListView() {
     audioSynth.playSessionStart();
   };
 
-  // Add extra minutes (+5m, +15m, +30m)
+  // Ajouter des minutes supplémentaires
   const handleAddMinutes = (id: string, mins: number) => {
     audioSynth.playScoreGain();
+    const addMs = mins * 60 * 1000;
+
     setClients(prev =>
       prev.map(c => {
         if (c.id === id) {
-          const nextRem = c.remainingSeconds + (mins * 60);
           return {
             ...c,
             durationMinutes: c.durationMinutes + mins,
-            remainingSeconds: nextRem,
-            alertExpiredFired: nextRem > 0 ? false : c.alertExpiredFired,
-            alert5MinFired: nextRem > 300 ? false : c.alert5MinFired,
+            targetEndTime: c.isPaused ? c.targetEndTime : c.targetEndTime + addMs,
+            pausedRemainingSeconds: c.isPaused 
+              ? (c.pausedRemainingSeconds ?? 0) + (mins * 60) 
+              : c.pausedRemainingSeconds,
+            alertExpiredFired: false,
+            alert5MinFired: false,
           };
         }
         return c;
@@ -187,15 +196,30 @@ export function SimpleClientListView() {
     );
   };
 
-  // Toggle pause
+  // Pause / Reprendre
   const handleTogglePause = (id: string) => {
     audioSynth.playClick();
+    const now = Date.now();
+
     setClients(prev =>
-      prev.map(c => (c.id === id ? { ...c, isPaused: !c.isPaused } : c))
+      prev.map(c => {
+        if (c.id === id) {
+          if (!c.isPaused) {
+            // Pause
+            const remSec = Math.round((c.targetEndTime - now) / 1000);
+            return { ...c, isPaused: true, pausedRemainingSeconds: remSec };
+          } else {
+            // Resume
+            const remSec = c.pausedRemainingSeconds ?? 0;
+            return { ...c, isPaused: false, targetEndTime: now + (remSec * 1000) };
+          }
+        }
+        return c;
+      })
     );
   };
 
-  // Checkout (Sortie du client)
+  // Sortie validée
   const handleCheckout = (client: SimpleClient) => {
     audioSynth.playClick();
     const now = new Date();
@@ -203,7 +227,6 @@ export function SimpleClientListView() {
     
     const pad = (n: number) => n.toString().padStart(2, '0');
     const formatH = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-    
     const spentMinutes = Math.round((Date.now() - client.entryTimestamp) / 60000);
 
     const record: CheckoutRecord = {
@@ -219,13 +242,24 @@ export function SimpleClientListView() {
     setClients(prev => prev.filter(c => c.id !== client.id));
   };
 
-  // Delete client
+  // Supprimer un client
   const handleDelete = (id: string) => {
     audioSynth.playClick();
     setClients(prev => prev.filter(c => c.id !== id));
   };
 
-  // Time format helper
+  // Réinitialiser TOUT
+  const handleResetAll = () => {
+    if (confirm('Voulez-vous vraiment TOUT RÉINITIALISER ?\nTous les clients en cours et l’historique des sorties seront effacés.')) {
+      setClients([]);
+      setCheckouts([]);
+      localStorage.removeItem(STORAGE_KEY_CLIENTS);
+      localStorage.removeItem(STORAGE_KEY_CHECKOUTS);
+      audioSynth.playTimesUpBuzzer();
+    }
+  };
+
+  // Formats d'affichage
   const formatTimer = (sec: number) => {
     const isNegative = sec < 0;
     const abs = Math.abs(sec);
@@ -247,14 +281,16 @@ export function SimpleClientListView() {
     return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   };
 
-  // Filter list
   const filteredClients = clients.filter(c => 
     c.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const activeCount = clients.length;
-  const expiredCount = clients.filter(c => c.remainingSeconds <= 0).length;
-  const warningCount = clients.filter(c => c.remainingSeconds > 0 && c.remainingSeconds <= 600).length;
+  const expiredCount = clients.filter(c => getRemainingSeconds(c) <= 0).length;
+  const warningCount = clients.filter(c => {
+    const r = getRemainingSeconds(c);
+    return r > 0 && r <= 600;
+  }).length;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans p-3 sm:p-6 selection:bg-cyan-500 selection:text-black">
@@ -274,12 +310,23 @@ export function SimpleClientListView() {
                 </span>
               </h1>
               <p className="text-xs text-zinc-400">
-                Contrôle du temps passé à l'intérieur pour chaque client
+                Contrôle du temps passé • Sauvegardé automatiquement (reste exact après actualisation)
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Bouton Réinitialiser Tout */}
+            <button
+              type="button"
+              onClick={handleResetAll}
+              className="px-3 py-2 rounded-xl bg-red-950/40 hover:bg-red-900/60 border border-red-500/30 text-xs font-bold text-red-300 flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Effacer tous les clients et remettre à zéro"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Réinitialiser
+            </button>
+
             {/* Audio Toggle */}
             <button
               type="button"
@@ -289,7 +336,6 @@ export function SimpleClientListView() {
                 audioSynth.setMuted(next);
               }}
               className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-bold text-zinc-300 flex items-center gap-1.5 transition-colors cursor-pointer"
-              title={soundMuted ? 'Activer le son des alertes' : 'Couper le son'}
             >
               {soundMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4 text-cyan-400" />}
               {soundMuted ? 'Son coupé' : 'Son activé'}
@@ -440,9 +486,10 @@ export function SimpleClientListView() {
 
               {/* Lignes clients */}
               {filteredClients.map(client => {
-                const isExpired = client.remainingSeconds <= 0;
-                const isWarning = client.remainingSeconds > 0 && client.remainingSeconds <= 600;
-                const exitTime = client.entryTimestamp + (client.durationMinutes * 60 * 1000);
+                const remainingSeconds = getRemainingSeconds(client);
+                const isExpired = remainingSeconds <= 0;
+                const isWarning = remainingSeconds > 0 && remainingSeconds <= 600;
+                const exitTime = client.targetEndTime;
 
                 return (
                   <div
@@ -502,7 +549,7 @@ export function SimpleClientListView() {
                             : 'text-cyan-300'
                         }`}
                       >
-                        {formatTimer(client.remainingSeconds)}
+                        {formatTimer(remainingSeconds)}
                         {isExpired && (
                           <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-red-500 text-white animate-pulse">
                             DÉPASSÉ

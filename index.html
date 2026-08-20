@@ -39,7 +39,24 @@
       </div>
 
       <div class="flex items-center gap-2">
-        <button id="btn-sound-toggle" onclick="toggleSound()" class="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-bold text-zinc-300 flex items-center gap-1.5 transition-colors cursor-pointer">
+        <!-- Bouton Réinitialiser Tout -->
+        <button
+          type="button"
+          onclick="resetAllData()"
+          class="px-3 py-2 rounded-xl bg-red-950/50 hover:bg-red-900/60 border border-red-500/30 text-xs font-bold text-red-300 flex items-center gap-1.5 transition-colors cursor-pointer"
+          title="Effacer tous les clients et réinitialiser"
+        >
+          <span>🔄</span>
+          <span>Réinitialiser</span>
+        </button>
+
+        <!-- Toggle Son -->
+        <button
+          id="btn-sound-toggle"
+          type="button"
+          onclick="toggleSound()"
+          class="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-bold text-zinc-300 flex items-center gap-1.5 transition-colors cursor-pointer"
+        >
           <span id="sound-icon">🔊</span>
           <span id="sound-text">Son activé</span>
         </button>
@@ -82,8 +99,9 @@
         <span class="font-bold text-zinc-200" id="counter-active">0 client en cours</span>
         <span class="font-bold text-red-400 hidden" id="counter-expired">0 dépassé</span>
       </div>
-      <div>
-        <span>Sauvegardé automatiquement dans votre navigateur</span>
+      <div class="flex items-center gap-2">
+        <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span>Temps réel synchronisé automatiquement</span>
       </div>
     </div>
 
@@ -105,7 +123,7 @@
         <h2 class="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
           <span>✓</span> Historique des sorties validées (<span id="checkout-count">0</span>)
         </h2>
-        <button onclick="clearHistory()" class="text-xs text-zinc-500 hover:text-red-400 cursor-pointer">Effacer</button>
+        <button onclick="clearHistory()" class="text-xs text-zinc-500 hover:text-red-400 cursor-pointer">Effacer historique</button>
       </div>
       <div id="history-container" class="overflow-x-auto">
         <p id="empty-history" class="text-xs text-zinc-500 py-2">Aucune sortie enregistrée pour l'instant.</p>
@@ -194,37 +212,53 @@
     }
 
     // ==========================================
-    // STATE & STORAGE
+    // STATE & STORAGE AVEC CALCUL EXACT DU TEMPS
     // ==========================================
     let selectedDuration = 60; // 60 minutes default
     let clients = [];
     let checkouts = [];
 
-    const STORAGE_CLIENTS = 'html_clients_v1';
-    const STORAGE_CHECKOUTS = 'html_checkouts_v1';
+    const STORAGE_CLIENTS = 'pixel_timer_clients_live';
+    const STORAGE_CHECKOUTS = 'pixel_timer_checkouts_live';
+
+    // Calcule le temps restant en secondes d'après l'horloge réelle
+    function calculateClientTime(client) {
+      if (client.isPaused) {
+        return client.pausedRemainingSeconds || 0;
+      }
+      const now = Date.now();
+      const targetEndTime = client.targetEndTime;
+      const diffSeconds = Math.round((targetEndTime - now) / 1000);
+      return diffSeconds;
+    }
 
     function loadState() {
       try {
         const savedC = localStorage.getItem(STORAGE_CLIENTS);
-        if (savedC) clients = JSON.parse(savedC);
-        else {
-          clients = [
-            {
-              id: 'c-1',
-              name: 'Lucas & Julie',
-              entryTimestamp: Date.now() - (15 * 60 * 1000),
-              durationMinutes: 60,
-              remainingSeconds: 2700,
-              isPaused: false
+        if (savedC) {
+          const parsed = JSON.parse(savedC);
+          clients = parsed.map(c => {
+            // Compatibilité / Migration
+            if (!c.targetEndTime) {
+              const durSec = (c.durationMinutes || 60) * 60;
+              c.targetEndTime = (c.entryTimestamp || Date.now()) + (durSec * 1000);
             }
-          ];
+            return c;
+          });
+        } else {
+          clients = [];
         }
-      } catch(e) {}
+      } catch(e) {
+        clients = [];
+      }
 
       try {
         const savedH = localStorage.getItem(STORAGE_CHECKOUTS);
         if (savedH) checkouts = JSON.parse(savedH);
-      } catch(e) {}
+        else checkouts = [];
+      } catch(e) {
+        checkouts = [];
+      }
     }
 
     function saveState() {
@@ -257,13 +291,17 @@
       const name = input.value.trim();
       if (!name) return;
 
+      const now = Date.now();
+      const durationMs = selectedDuration * 60 * 1000;
+
       const newClient = {
-        id: 'c-' + Date.now(),
+        id: 'c-' + now,
         name: name,
-        entryTimestamp: Date.now(),
+        entryTimestamp: now,
         durationMinutes: selectedDuration,
-        remainingSeconds: selectedDuration * 60,
+        targetEndTime: now + durationMs,
         isPaused: false,
+        pausedRemainingSeconds: selectedDuration * 60,
         alert5MinFired: false,
         alertExpiredFired: false
       };
@@ -278,10 +316,15 @@
     function addMinutes(id, mins) {
       const client = clients.find(c => c.id === id);
       if (client) {
+        const addMs = mins * 60 * 1000;
         client.durationMinutes += mins;
-        client.remainingSeconds += mins * 60;
-        if (client.remainingSeconds > 0) client.alertExpiredFired = false;
-        if (client.remainingSeconds > 300) client.alert5MinFired = false;
+        if (client.isPaused) {
+          client.pausedRemainingSeconds = (client.pausedRemainingSeconds || 0) + (mins * 60);
+        } else {
+          client.targetEndTime += addMs;
+        }
+        client.alertExpiredFired = false;
+        client.alert5MinFired = false;
         saveState();
         renderClients();
         playBeep(700, 0.15);
@@ -291,7 +334,17 @@
     function togglePause(id) {
       const client = clients.find(c => c.id === id);
       if (client) {
-        client.isPaused = !client.isPaused;
+        const now = Date.now();
+        if (!client.isPaused) {
+          // Met en pause
+          client.pausedRemainingSeconds = Math.round((client.targetEndTime - now) / 1000);
+          client.isPaused = true;
+        } else {
+          // Reprend
+          const remSec = client.pausedRemainingSeconds || 0;
+          client.targetEndTime = now + (remSec * 1000);
+          client.isPaused = false;
+        }
         saveState();
         renderClients();
         playBeep(500, 0.1);
@@ -324,15 +377,27 @@
 
     function deleteClient(id) {
       const client = clients.find(c => c.id === id);
-      if (client && confirm(`Supprimer ${client.name} ?`)) {
+      if (client && confirm(`Supprimer ${client.name} de la liste ?`)) {
         clients = clients.filter(c => c.id !== id);
         saveState();
         renderClients();
       }
     }
 
+    // Réinitialiser tout (Clients + Historique)
+    function resetAllData() {
+      if (confirm('Voulez-vous vraiment TOUT RÉINITIALISER ?\nTous les clients en cours et l’historique seront effacés.')) {
+        clients = [];
+        checkouts = [];
+        saveState();
+        renderClients();
+        renderHistory();
+        playBeep(400, 0.25);
+      }
+    }
+
     function clearHistory() {
-      if (confirm('Effacer l’historique des sorties du jour ?')) {
+      if (confirm('Effacer l’historique des sorties validées ?')) {
         checkouts = [];
         saveState();
         renderHistory();
@@ -370,18 +435,13 @@
 
       counterActive.innerText = `${clients.length} client${clients.length > 1 ? 's' : ''} à l'intérieur`;
       
-      const expiredCount = clients.filter(c => c.remainingSeconds <= 0).length;
-      if (expiredCount > 0) {
-        counterExpired.classList.remove('hidden');
-        counterExpired.innerText = `${expiredCount} dépassé${expiredCount > 1 ? 's' : ''}`;
-      } else {
-        counterExpired.classList.add('hidden');
-      }
+      let expiredCount = 0;
 
       if (clients.length === 0) {
         container.innerHTML = '';
         emptyState.classList.remove('hidden');
         emptyState.classList.add('flex');
+        counterExpired.classList.add('hidden');
         return;
       }
 
@@ -389,9 +449,12 @@
       emptyState.classList.remove('flex');
 
       container.innerHTML = clients.map(client => {
-        const isExpired = client.remainingSeconds <= 0;
-        const isWarning = client.remainingSeconds > 0 && client.remainingSeconds <= 600;
-        const exitTime = client.entryTimestamp + (client.durationMinutes * 60 * 1000);
+        const remainingSeconds = calculateClientTime(client);
+        const isExpired = remainingSeconds <= 0;
+        const isWarning = remainingSeconds > 0 && remainingSeconds <= 600;
+        const exitTime = client.targetEndTime;
+
+        if (isExpired) expiredCount++;
 
         return `
           <div class="p-4 flex flex-col sm:grid sm:grid-cols-12 gap-3 sm:gap-4 items-start sm:items-center ${
@@ -423,7 +486,7 @@
               <div class="font-mono font-black text-2xl sm:text-3xl tracking-tight inline-flex items-center gap-2 ${
                 isExpired ? 'text-red-400' : isWarning ? 'text-amber-300' : 'text-cyan-300'
               }">
-                ${formatTimer(client.remainingSeconds)}
+                ${formatTimer(remainingSeconds)}
                 ${isExpired ? '<span class="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-red-500 text-white animate-pulse">DÉPASSÉ</span>' : ''}
               </div>
             </div>
@@ -446,6 +509,13 @@
           </div>
         `;
       }).join('');
+
+      if (expiredCount > 0) {
+        counterExpired.classList.remove('hidden');
+        counterExpired.innerText = `${expiredCount} dépassé${expiredCount > 1 ? 's' : ''}`;
+      } else {
+        counterExpired.classList.add('hidden');
+      }
     }
 
     function renderHistory() {
@@ -477,27 +547,23 @@
 
     // Intervalle moteur 1 seconde
     setInterval(() => {
-      let hasChanges = false;
-      clients.forEach(client => {
-        if (!client.isPaused) {
-          client.remainingSeconds -= 1;
-          hasChanges = true;
-
-          // Alertes sonores
-          if (client.remainingSeconds === 300 && !client.alert5MinFired) {
-            client.alert5MinFired = true;
-            playAlertBuzzer();
-            speakText(`Attention ${client.name}, il vous reste 5 minutes.`);
-          } else if (client.remainingSeconds === 0 && !client.alertExpiredFired) {
-            client.alertExpiredFired = true;
-            playAlertBuzzer();
-            speakText(`Temps écoulé pour ${client.name} !`);
+      if (clients.length > 0) {
+        clients.forEach(client => {
+          if (!client.isPaused) {
+            const rem = calculateClientTime(client);
+            if (rem === 300 && !client.alert5MinFired) {
+              client.alert5MinFired = true;
+              playAlertBuzzer();
+              speakText(`Attention ${client.name}, il vous reste 5 minutes.`);
+              saveState();
+            } else if (rem === 0 && !client.alertExpiredFired) {
+              client.alertExpiredFired = true;
+              playAlertBuzzer();
+              speakText(`Temps écoulé pour ${client.name} !`);
+              saveState();
+            }
           }
-        }
-      });
-
-      if (hasChanges) {
-        saveState();
+        });
         renderClients();
       }
     }, 1000);
