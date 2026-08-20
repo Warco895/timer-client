@@ -313,18 +313,16 @@
       playBeep(880, 0.2);
     }
 
-    function addMinutes(id, mins) {
+    function subtractMinutes(id, mins) {
       const client = clients.find(c => c.id === id);
       if (client) {
-        const addMs = mins * 60 * 1000;
-        client.durationMinutes += mins;
+        const subMs = mins * 60 * 1000;
+        client.durationMinutes = Math.max(0, client.durationMinutes - mins);
         if (client.isPaused) {
-          client.pausedRemainingSeconds = (client.pausedRemainingSeconds || 0) + (mins * 60);
+          client.pausedRemainingSeconds = (client.pausedRemainingSeconds || 0) - (mins * 60);
         } else {
-          client.targetEndTime += addMs;
+          client.targetEndTime -= subMs;
         }
-        client.alertExpiredFired = false;
-        client.alert5MinFired = false;
         saveState();
         renderClients();
         playBeep(700, 0.15);
@@ -493,8 +491,9 @@
 
             <!-- Actions Rapides -->
             <div class="sm:col-span-3 flex items-center justify-end gap-1.5 w-full pt-2 sm:pt-0 border-t sm:border-t-0 border-zinc-800">
-              <button onclick="addMinutes('${client.id}', 5)" class="px-2 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-bold text-zinc-300 transition-colors cursor-pointer" title="Ajouter 5 minutes">+5m</button>
-              <button onclick="addMinutes('${client.id}', 15)" class="px-2 py-1.5 rounded-lg bg-cyan-950/60 hover:bg-cyan-900/60 border border-cyan-500/30 text-xs font-bold text-cyan-300 transition-colors cursor-pointer" title="Ajouter 15 minutes">+15m</button>
+              <button onclick="subtractMinutes('${client.id}', 5)" class="px-2 py-1.5 rounded-lg bg-zinc-800 hover:bg-amber-950/50 border border-zinc-700/60 hover:border-amber-500/40 text-xs font-bold text-zinc-300 hover:text-amber-300 transition-colors cursor-pointer" title="Retirer 5 minutes">-5m</button>
+              <button onclick="subtractMinutes('${client.id}', 10)" class="px-2 py-1.5 rounded-lg bg-zinc-800 hover:bg-amber-950/50 border border-zinc-700/60 hover:border-amber-500/40 text-xs font-bold text-zinc-300 hover:text-amber-300 transition-colors cursor-pointer" title="Retirer 10 minutes">-10m</button>
+              <button onclick="subtractMinutes('${client.id}', 15)" class="px-2 py-1.5 rounded-lg bg-zinc-800 hover:bg-amber-950/50 border border-zinc-700/60 hover:border-amber-500/40 text-xs font-bold text-zinc-300 hover:text-amber-300 transition-colors cursor-pointer" title="Retirer 15 minutes">-15m</button>
               <button onclick="togglePause('${client.id}')" class="p-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${client.isPaused ? 'bg-emerald-500 text-black' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'}">
                 ${client.isPaused ? '▶' : '⏸'}
               </button>

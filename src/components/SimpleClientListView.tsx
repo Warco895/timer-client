@@ -172,23 +172,21 @@ export function SimpleClientListView() {
     audioSynth.playSessionStart();
   };
 
-  // Ajouter des minutes supplémentaires
-  const handleAddMinutes = (id: string, mins: number) => {
+  // Retirer des minutes (-5m, -10m, -15m)
+  const handleSubtractMinutes = (id: string, mins: number) => {
     audioSynth.playScoreGain();
-    const addMs = mins * 60 * 1000;
+    const subMs = mins * 60 * 1000;
 
     setClients(prev =>
       prev.map(c => {
         if (c.id === id) {
           return {
             ...c,
-            durationMinutes: c.durationMinutes + mins,
-            targetEndTime: c.isPaused ? c.targetEndTime : c.targetEndTime + addMs,
+            durationMinutes: Math.max(0, c.durationMinutes - mins),
+            targetEndTime: c.isPaused ? c.targetEndTime : c.targetEndTime - subMs,
             pausedRemainingSeconds: c.isPaused 
-              ? (c.pausedRemainingSeconds ?? 0) + (mins * 60) 
+              ? (c.pausedRemainingSeconds ?? 0) - (mins * 60) 
               : c.pausedRemainingSeconds,
-            alertExpiredFired: false,
-            alert5MinFired: false,
           };
         }
         return c;
@@ -561,22 +559,30 @@ export function SimpleClientListView() {
                     {/* Boutons d'actions rapides */}
                     <div className="sm:col-span-3 flex items-center justify-end gap-1.5 w-full pt-2 sm:pt-0 border-t sm:border-t-0 border-zinc-800/80">
                       
-                      {/* +5 min / +15 min */}
+                      {/* -5 min / -10 min / -15 min */}
                       <button
                         type="button"
-                        onClick={() => handleAddMinutes(client.id, 5)}
-                        className="px-2 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-bold text-zinc-300 transition-colors cursor-pointer"
-                        title="Ajouter 5 minutes"
+                        onClick={() => handleSubtractMinutes(client.id, 5)}
+                        className="px-2 py-1.5 rounded-lg bg-zinc-800 hover:bg-amber-950/50 border border-zinc-700/60 hover:border-amber-500/40 text-xs font-bold text-zinc-300 hover:text-amber-300 transition-colors cursor-pointer"
+                        title="Retirer 5 minutes"
                       >
-                        +5m
+                        -5m
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleAddMinutes(client.id, 15)}
-                        className="px-2 py-1.5 rounded-lg bg-cyan-950/60 hover:bg-cyan-900/60 border border-cyan-500/30 text-xs font-bold text-cyan-300 transition-colors cursor-pointer"
-                        title="Ajouter 15 minutes"
+                        onClick={() => handleSubtractMinutes(client.id, 10)}
+                        className="px-2 py-1.5 rounded-lg bg-zinc-800 hover:bg-amber-950/50 border border-zinc-700/60 hover:border-amber-500/40 text-xs font-bold text-zinc-300 hover:text-amber-300 transition-colors cursor-pointer"
+                        title="Retirer 10 minutes"
                       >
-                        +15m
+                        -10m
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSubtractMinutes(client.id, 15)}
+                        className="px-2 py-1.5 rounded-lg bg-zinc-800 hover:bg-amber-950/50 border border-zinc-700/60 hover:border-amber-500/40 text-xs font-bold text-zinc-300 hover:text-amber-300 transition-colors cursor-pointer"
+                        title="Retirer 15 minutes"
+                      >
+                        -15m
                       </button>
 
                       {/* Pause / Reprendre */}
