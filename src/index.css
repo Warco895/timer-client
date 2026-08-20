@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .font-pixel {
+    font-family: 'Press Start 2P', monospace;
+  }
+  .font-display {
+    font-family: 'Orbitron', sans-serif;
+  }
+  .font-tech {
+    font-family: 'Chakra Petch', sans-serif;
+  }
+  .font-condensed {
+    font-family: 'Rajdhani', sans-serif;
+  }
+  
+  .glow-cyan {
+    text-shadow: 0 0 10px rgba(6, 182, 212, 0.7), 0 0 25px rgba(6, 182, 212, 0.4);
+  }
+  .glow-pink {
+    text-shadow: 0 0 10px rgba(236, 72, 153, 0.7), 0 0 25px rgba(236, 72, 153, 0.4);
+  }
+  .glow-yellow {
+    text-shadow: 0 0 10px rgba(234, 179, 8, 0.7), 0 0 25px rgba(234, 179, 8, 0.4);
+  }
+  .glow-red {
+    text-shadow: 0 0 12px rgba(239, 68, 68, 0.8), 0 0 30px rgba(239, 68, 68, 0.5);
+  }
+  .glow-green {
+    text-shadow: 0 0 10px rgba(34, 197, 94, 0.7), 0 0 25px rgba(34, 197, 94, 0.4);
+  }
+
+  .box-glow-cyan {
+    box-shadow: 0 0 25px -5px rgba(6, 182, 212, 0.35), inset 0 0 15px -5px rgba(6, 182, 212, 0.2);
+  }
+  .box-glow-pink {
+    box-shadow: 0 0 25px -5px rgba(236, 72, 153, 0.35), inset 0 0 15px -5px rgba(236, 72, 153, 0.2);
+  }
+  .box-glow-red {
+    box-shadow: 0 0 30px -5px rgba(239, 68, 68, 0.5), inset 0 0 20px -5px rgba(239, 68, 68, 0.3);
+  }
+}
+
+/* Scanline and Pixel Grid Background effects */
+.pixel-grid-bg {
+  background-size: 32px 32px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+}
+
+.pixel-grid-dense {
+  background-size: 16px 16px;
+  background-image: 
+    linear-gradient(to right, rgba(6, 182, 212, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(6, 182, 212, 0.06) 1px, transparent 1px);
+}
+
+.scanlines {
+  background: linear-gradient(
+    rgba(18, 16, 16, 0) 50%, 
+    rgba(0, 0, 0, 0.25) 50%
+  );
+  background-size: 100% 4px;
+}
+

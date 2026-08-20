@@ -1,0 +1,6 @@
+{
+  "name": "Pixel Arena Timer",
+  "description": "Contrôle du temps passé pour chaque client avec saisie du nom, compte à rebours de 1 heure, alertes de fin de session et régie complète.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
