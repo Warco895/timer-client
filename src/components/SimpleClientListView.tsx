@@ -47,8 +47,21 @@ export interface CheckoutRecord {
 
 const STORAGE_KEY_CLIENTS = 'pixel_simple_clients_exact_v3';
 const STORAGE_KEY_CHECKOUTS = 'pixel_simple_checkouts_exact_v3';
+const STORAGE_KEY_FREQUENT = 'pixel_simple_frequent_names_v1';
+
+const DEFAULT_FREQUENT_NAMES = ['Lucas', 'Famille Martin', 'Alex', 'Emma', 'Thomas', 'Sarah', 'Maxime', 'Léa', 'Hugo'];
 
 export function SimpleClientListView() {
+  const [frequentNames, setFrequentNames] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_FREQUENT);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return DEFAULT_FREQUENT_NAMES;
+  });
+
+  const [newFrequentInput, setNewFrequentInput] = useState('');
+  const [showAddFrequent, setShowAddFrequent] = useState(false);
   const [clients, setClients] = useState<SimpleClient[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_CLIENTS);
@@ -100,6 +113,60 @@ export function SimpleClientListView() {
       localStorage.setItem(STORAGE_KEY_CHECKOUTS, JSON.stringify(checkouts));
     } catch {}
   }, [checkouts]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_FREQUENT, JSON.stringify(frequentNames));
+    } catch {}
+  }, [frequentNames]);
+
+  // Démarrer directement un client habitué en 1 clic
+  const handleQuickStartFrequent = (name: string) => {
+    const now = Date.now();
+    const totalMs = durationMinutes * 60 * 1000;
+
+    const newClient: SimpleClient = {
+      id: `client-${now}`,
+      name: name,
+      entryTimestamp: now,
+      durationMinutes: durationMinutes,
+      targetEndTime: now + totalMs,
+      isPaused: false,
+      pausedRemainingSeconds: durationMinutes * 60,
+      alert5MinFired: false,
+      alertExpiredFired: false,
+    };
+
+    setClients(prev => [newClient, ...prev]);
+    setNameInput('');
+    audioSynth.playSessionStart();
+  };
+
+  // Remplir le champ avec le prénom cliqué
+  const handleSelectFrequentName = (name: string) => {
+    setNameInput(name);
+    audioSynth.playClick();
+  };
+
+  // Ajouter un prénom à la liste des habitués
+  const handleAddFrequentName = (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = newFrequentInput.trim();
+    if (!clean) return;
+    if (!frequentNames.some(n => n.toLowerCase() === clean.toLowerCase())) {
+      setFrequentNames(prev => [...prev, clean]);
+      audioSynth.playScoreGain();
+    }
+    setNewFrequentInput('');
+    setShowAddFrequent(false);
+  };
+
+  // Supprimer un prénom des habitués
+  const handleRemoveFrequentName = (e: React.MouseEvent, nameToRemove: string) => {
+    e.stopPropagation();
+    setFrequentNames(prev => prev.filter(n => n !== nameToRemove));
+    audioSynth.playClick();
+  };
 
   // Horloge 1s pour actualiser l'affichage & déclencher alertes
   useEffect(() => {
@@ -420,6 +487,96 @@ export function SimpleClientListView() {
             </button>
 
           </form>
+
+          {/* ⚡ BULLES DE PRÉNOMS HABITUELS */}
+          <div className="mt-4 pt-3.5 border-t border-zinc-800/80 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                <span>⚡</span> Habitués & Raccourcis :
+                <span className="text-zinc-500 lowercase font-normal">(cliquez pour sélectionner ou lancer en 1 clic)</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowAddFrequent(!showAddFrequent)}
+                className="text-[11px] font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer transition-colors"
+              >
+                <Plus className="w-3 h-3" />
+                {showAddFrequent ? 'Fermer' : 'Ajouter un habitué'}
+              </button>
+            </div>
+
+            {/* Formulaire ajout nouveau prénom habitué */}
+            {showAddFrequent && (
+              <form onSubmit={handleAddFrequentName} className="flex items-center gap-2 mt-1 mb-1">
+                <input
+                  type="text"
+                  value={newFrequentInput}
+                  onChange={e => setNewFrequentInput(e.target.value)}
+                  placeholder="Nouveau prénom habitué..."
+                  autoFocus
+                  className="bg-zinc-950 border border-zinc-700 focus:border-cyan-400 rounded-lg px-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none w-48"
+                />
+                <button
+                  type="submit"
+                  disabled={!newFrequentInput.trim()}
+                  className="px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-black text-xs font-bold transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  Ajouter bulle
+                </button>
+              </form>
+            )}
+
+            {/* Liste des bulles */}
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              {frequentNames.map((name) => {
+                const isSelected = nameInput === name;
+                return (
+                  <div
+                    key={name}
+                    className={`group inline-flex items-center rounded-full text-xs font-semibold transition-all border shadow-sm ${
+                      isSelected
+                        ? 'bg-cyan-500 text-black border-cyan-400 shadow-cyan-500/30 ring-2 ring-cyan-400/50'
+                        : 'bg-zinc-950 hover:bg-zinc-800 text-zinc-300 hover:text-white border-zinc-700/80 hover:border-cyan-500/50'
+                    }`}
+                  >
+                    {/* Clic sur le nom pour remplir le champ */}
+                    <button
+                      type="button"
+                      onClick={() => handleSelectFrequentName(name)}
+                      className="pl-3 pr-1.5 py-1.5 flex items-center gap-1.5 cursor-pointer"
+                      title={`Remplir avec "${name}"`}
+                    >
+                      <span>{name}</span>
+                    </button>
+
+                    {/* Bouton lancement direct en 1 clic */}
+                    <button
+                      type="button"
+                      onClick={() => handleQuickStartFrequent(name)}
+                      className={`p-1.5 rounded-full transition-all cursor-pointer ${
+                        isSelected 
+                          ? 'hover:bg-black/20 text-black' 
+                          : 'hover:bg-cyan-500/20 text-cyan-400'
+                      }`}
+                      title={`Démarrer direct ${durationMinutes} min pour ${name}`}
+                    >
+                      <Play className="w-2.5 h-2.5 fill-current" />
+                    </button>
+
+                    {/* Bouton supprimer la bulle */}
+                    <button
+                      type="button"
+                      onClick={(e) => handleRemoveFrequentName(e, name)}
+                      className="pr-2.5 pl-0.5 py-1.5 text-zinc-500 hover:text-red-400 opacity-60 hover:opacity-100 transition-all cursor-pointer text-xs leading-none"
+                      title={`Supprimer ${name} des habitués`}
+                    >
+                      ×
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </section>
 
         {/* 📊 BARRE D'ÉTAT & RECHERCHE */}

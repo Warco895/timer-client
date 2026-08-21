@@ -93,6 +93,46 @@
           ▶ DÉMARRER <span id="submit-duration-label">60 MIN</span>
         </button>
       </form>
+
+      <!-- BULLES DE PRÉNOMS HABITUELS -->
+      <div class="mt-4 pt-3.5 border-t border-zinc-800 flex flex-col gap-2">
+        <div class="flex items-center justify-between">
+          <span class="text-[11px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+            <span>⚡</span> Habitués & Raccourcis :
+            <span class="text-zinc-500 lowercase font-normal hidden sm:inline">(cliquez pour remplir ou sur ▶ pour lancer direct)</span>
+          </span>
+          <button
+            type="button"
+            onclick="toggleAddFrequent()"
+            class="text-[11px] font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer transition-colors"
+          >
+            <span>+</span> <span id="btn-add-frequent-text">Ajouter un habitué</span>
+          </button>
+        </div>
+
+        <!-- Formulaire ajout habitué -->
+        <div id="add-frequent-box" class="hidden flex items-center gap-2 mt-1">
+          <input
+            id="new-frequent-input"
+            type="text"
+            placeholder="Nouveau prénom habitué..."
+            class="bg-zinc-950 border border-zinc-700 focus:border-cyan-400 rounded-lg px-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none w-48"
+            onkeydown="if(event.key==='Enter'){event.preventDefault(); addNewFrequent();}"
+          />
+          <button
+            type="button"
+            onclick="addNewFrequent()"
+            class="px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-black text-xs font-bold transition-all cursor-pointer"
+          >
+            Ajouter bulle
+          </button>
+        </div>
+
+        <!-- Container des bulles de prénoms -->
+        <div id="frequent-bubbles-container" class="flex flex-wrap items-center gap-2 pt-1">
+          <!-- Rendu dynamique JS -->
+        </div>
+      </div>
     </section>
 
     <!-- STATUT & COMPTEURS -->
@@ -219,9 +259,11 @@
     let selectedDuration = 60; // 60 minutes default
     let clients = [];
     let checkouts = [];
+    let frequentNames = ['Lucas', 'Famille Martin', 'Alex', 'Emma', 'Thomas', 'Sarah', 'Maxime', 'Léa', 'Hugo'];
 
     const STORAGE_CLIENTS = 'pixel_timer_clients_live';
     const STORAGE_CHECKOUTS = 'pixel_timer_checkouts_live';
+    const STORAGE_FREQUENT = 'pixel_timer_frequent_names_live';
 
     // Calcule le temps restant en secondes d'après l'horloge réelle
     function calculateClientTime(client) {
@@ -261,13 +303,133 @@
       } catch(e) {
         checkouts = [];
       }
+
+      try {
+        const savedF = localStorage.getItem(STORAGE_FREQUENT);
+        if (savedF) frequentNames = JSON.parse(savedF);
+      } catch(e) {}
     }
 
     function saveState() {
       try {
         localStorage.setItem(STORAGE_CLIENTS, JSON.stringify(clients));
         localStorage.setItem(STORAGE_CHECKOUTS, JSON.stringify(checkouts));
+        localStorage.setItem(STORAGE_FREQUENT, JSON.stringify(frequentNames));
       } catch(e) {}
+    }
+
+    // ==========================================
+    // GESTION DES BULLES DE PRÉNOMS HABITUELS
+    // ==========================================
+    function renderFrequentBubbles() {
+      const container = document.getElementById('frequent-bubbles-container');
+      if (!container) return;
+      const currentInput = (document.getElementById('client-name-input')?.value || '').trim();
+
+      container.innerHTML = frequentNames.map(name => {
+        const isSelected = currentInput.toLowerCase() === name.toLowerCase();
+        return `
+          <div class="inline-flex items-center rounded-full text-xs font-semibold transition-all border shadow-sm ${
+            isSelected
+              ? 'bg-cyan-500 text-black border-cyan-400 shadow-cyan-500/30 ring-2 ring-cyan-400/50'
+              : 'bg-zinc-950 hover:bg-zinc-800 text-zinc-300 hover:text-white border-zinc-700/80 hover:border-cyan-500/50'
+          }">
+            <button
+              type="button"
+              onclick="selectFrequentName('${name.replace(/'/g, "\\'")}')"
+              class="pl-3 pr-1.5 py-1.5 flex items-center gap-1.5 cursor-pointer"
+              title="Remplir avec '${name}'"
+            >
+              <span>${name}</span>
+            </button>
+            <button
+              type="button"
+              onclick="quickStartFrequent('${name.replace(/'/g, "\\'")}')"
+              class="p-1.5 rounded-full transition-all cursor-pointer ${
+                isSelected ? 'hover:bg-black/20 text-black' : 'hover:bg-cyan-500/20 text-cyan-400'
+              }"
+              title="Démarrer direct ${selectedDuration} min pour ${name}"
+            >
+              ▶
+            </button>
+            <button
+              type="button"
+              onclick="removeFrequent(event, '${name.replace(/'/g, "\\'")}')"
+              class="pr-2.5 pl-0.5 py-1.5 text-zinc-500 hover:text-red-400 opacity-60 hover:opacity-100 transition-all cursor-pointer text-xs leading-none"
+              title="Supprimer des habitués"
+            >
+              ×
+            </button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function selectFrequentName(name) {
+      const input = document.getElementById('client-name-input');
+      input.value = name;
+      input.focus();
+      renderFrequentBubbles();
+      playBeep(600, 0.1);
+    }
+
+    function quickStartFrequent(name) {
+      const now = Date.now();
+      const durationMs = selectedDuration * 60 * 1000;
+
+      const newClient = {
+        id: 'c-' + now,
+        name: name,
+        entryTimestamp: now,
+        durationMinutes: selectedDuration,
+        targetEndTime: now + durationMs,
+        isPaused: false,
+        pausedRemainingSeconds: selectedDuration * 60,
+        alert5MinFired: false,
+        alertExpiredFired: false
+      };
+
+      clients.unshift(newClient);
+      document.getElementById('client-name-input').value = '';
+      saveState();
+      renderClients();
+      renderFrequentBubbles();
+      playBeep(880, 0.2);
+    }
+
+    function toggleAddFrequent() {
+      const box = document.getElementById('add-frequent-box');
+      const btnText = document.getElementById('btn-add-frequent-text');
+      if (box.classList.contains('hidden')) {
+        box.classList.remove('hidden');
+        btnText.innerText = 'Fermer';
+        document.getElementById('new-frequent-input').focus();
+      } else {
+        box.classList.add('hidden');
+        btnText.innerText = 'Ajouter un habitué';
+      }
+    }
+
+    function addNewFrequent() {
+      const input = document.getElementById('new-frequent-input');
+      const clean = (input.value || '').trim();
+      if (!clean) return;
+      if (!frequentNames.some(n => n.toLowerCase() === clean.toLowerCase())) {
+        frequentNames.push(clean);
+        saveState();
+        renderFrequentBubbles();
+        playBeep(750, 0.15);
+      }
+      input.value = '';
+      toggleAddFrequent();
+    }
+
+    function removeFrequent(event, name) {
+      event.stopPropagation();
+      frequentNames = frequentNames.filter(n => n !== name);
+      saveState();
+      renderFrequentBubbles();
+      playBeep(450, 0.1);
     }
 
     // ==========================================
@@ -312,6 +474,7 @@
       input.value = '';
       saveState();
       renderClients();
+      renderFrequentBubbles();
       playBeep(880, 0.2);
     }
 
@@ -573,6 +736,7 @@
     loadState();
     renderClients();
     renderHistory();
+    renderFrequentBubbles();
   </script>
 </body>
 </html>
